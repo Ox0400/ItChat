@@ -1,10 +1,12 @@
-import time, re, io
+import os, time, re, io
 import json, copy
-import logging
+import traceback, logging
+
+import requests
 
 from .. import config, utils
 from ..returnvalues import ReturnValue
-from ..storage import contact_change
+from ..storage import contact_change, templates
 from ..utils import update_info_dict
 
 logger = logging.getLogger('itchat')
@@ -146,9 +148,8 @@ def update_local_chatrooms(core, l):
                 del oldChatroom['MemberList'][i]
         #  - update OwnerUin
         if oldChatroom.get('ChatRoomOwner') and oldChatroom.get('MemberList'):
-            owner = utils.search_dict_list(oldChatroom['MemberList'],
-                'UserName', oldChatroom['ChatRoomOwner'])
-            oldChatroom['OwnerUin'] = (owner or {}).get('Uin', 0)
+            oldChatroom['OwnerUin'] = utils.search_dict_list(oldChatroom['MemberList'],
+                'UserName', oldChatroom['ChatRoomOwner']).get('Uin', 0)
         #  - update IsAdmin
         if 'OwnerUin' in oldChatroom and oldChatroom['OwnerUin'] != 0:
             oldChatroom['IsAdmin'] = \

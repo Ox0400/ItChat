@@ -1,7 +1,7 @@
-import os, time, re, io
+import os, sys, time, re, io
 import threading
 import json, xml.dom.minidom
-import random
+import copy, pickle, random
 import traceback, logging
 try:
     from httplib import BadStatusLine
@@ -58,8 +58,10 @@ def login(self, enableCmdQR=False, picDir=None, qrCallback=None,
             elif status == '201':
                 if isLoggedIn is not None:
                     logger.info('Please press confirm on your phone.')
+                    time.sleep(2)
                     isLoggedIn = None
             elif status != '408':
+                print("hit status: %s" % status)
                 break
         if isLoggedIn:
             break
@@ -115,11 +117,11 @@ def get_QR(self, uuid=None, enableCmdQR=False, picDir=None, qrCallback=None):
     if hasattr(qrCallback, '__call__'):
         qrCallback(uuid=uuid, status='0', qrcode=qrStorage.getvalue())
     else:
-        with open(picDir, 'wb') as f:
-            f.write(qrStorage.getvalue())
         if enableCmdQR:
             utils.print_cmd_qr(qrCode.text(1), enableCmdQR=enableCmdQR)
         else:
+            with open(picDir, 'wb') as f:
+                f.write(qrStorage.getvalue())
             utils.print_qr(picDir)
     return qrStorage
 
@@ -130,7 +132,7 @@ def check_login(self, uuid=None):
     params = 'loginicon=true&uuid=%s&tip=1&r=%s&_=%s' % (
         uuid, int(-localTime / 1579), localTime)
     headers = { 'User-Agent' : config.USER_AGENT }
-    r = self.s.get(url, params=params, headers=headers)
+    r = self.s.get(url, params=params, headers=headers, timeout=30)
     regx = r'window.code=(\d+)'
     data = re.search(regx, r.text)
     if data and data.group(1) == '200':
@@ -151,8 +153,21 @@ def process_login_info(core, loginContent):
     '''
     regx = r'window.redirect_uri="(\S+)";'
     core.loginInfo['url'] = re.search(regx, loginContent).group(1)
-    headers = { 'User-Agent' : config.USER_AGENT }
-    r = core.s.get(core.loginInfo['url'], headers=headers, allow_redirects=False)
+
+    headers = {
+    'User-Agent' : config.USER_AGENT,
+      "extspam": "Go8FCIkFEokFCggwMDAwMDAwMRAGGvAESySibk50w5Wb3uTl2c2h64jVVrV7gNs06GFlWplHQbY/5FfiO++1yH4ykCyNPWKXmco+wfQzK5R98D3so7rJ5LmGFvBLjGceleySrc3SOf2Pc1gVehzJgODeS0lDL3/I/0S2SSE98YgKleq6Uqx6ndTy9yaL9qFxJL7eiA/R3SEfTaW1SBoSITIu+EEkXff+Pv8NHOk7N57rcGk1w0ZzRrQDkXTOXFN2iHYIzAAZPIOY45Lsh+A4slpgnDiaOvRtlQYCt97nmPLuTipOJ8Qc5pM7ZsOsAPPrCQL7nK0I7aPrFDF0q4ziUUKettzW8MrAaiVfmbD1/VkmLNVqqZVvBCtRblXb5FHmtS8FxnqCzYP4WFvz3T0TcrOqwLX1M/DQvcHaGGw0B0y4bZMs7lVScGBFxMj3vbFi2SRKbKhaitxHfYHAOAa0X7/MSS0RNAjdwoyGHeOepXOKY+h3iHeqCvgOH6LOifdHf/1aaZNwSkGotYnYScW8Yx63LnSwba7+hESrtPa/huRmB9KWvMCKbDThL/nne14hnL277EDCSocPu3rOSYjuB9gKSOdVmWsj9Dxb/iZIe+S6AiG29Esm+/eUacSba0k8wn5HhHg9d4tIcixrxveflc8vi2/wNQGVFNsGO6tB5WF0xf/plngOvQ1/ivGV/C1Qpdhzznh0ExAVJ6dwzNg7qIEBaw+BzTJTUuRcPk92Sn6QDn2Pu3mpONaEumacjW4w6ipPnPw+g2TfywJjeEcpSZaP4Q3YV5HG8D6UjWA4GSkBKculWpdCMadx0usMomsSS/74QgpYqcPkmamB4nVv1JxczYITIqItIKjD35IGKAUwAA==",
+      "client-version": "2.0.0",
+      "Referer": "https://wx.qq.com/?target=t"
+    }
+
+    params={
+        "fun": "new",
+        "version": "v2",
+        "mod": "desktop",
+        "target":"t"
+    }
+    r = core.s.get(core.loginInfo['url'], headers=headers, allow_redirects=False, params=params)
     core.loginInfo['url'] = core.loginInfo['url'][:core.loginInfo['url'].rfind('/')]
     for indexUrl, detailedUrl in (
             ("wx2.qq.com"      , ("file.wx2.qq.com", "webpush.wx2.qq.com")),
@@ -168,8 +183,10 @@ def process_login_info(core, loginContent):
     else:
         core.loginInfo['fileUrl'] = core.loginInfo['syncUrl'] = core.loginInfo['url']
     core.loginInfo['deviceid'] = 'e' + repr(random.random())[2:17]
-    core.loginInfo['logintime'] = int(time.time() * 1e3)
     core.loginInfo['BaseRequest'] = {}
+    if "为了保障你的帐号安全，暂不支持使用网页版微信" in r.text:
+        core.isLogging = False
+        return False
     for node in xml.dom.minidom.parseString(r.text).documentElement.childNodes:
         if node.nodeName == 'skey':
             core.loginInfo['skey'] = core.loginInfo['BaseRequest']['Skey'] = node.childNodes[0].data
@@ -207,19 +224,19 @@ def web_init(self):
     self.storageClass.userName = dic['User']['UserName']
     self.storageClass.nickName = dic['User']['NickName']
     # deal with contact list returned when init
-    contactList = dic.get('ContactList', [])
-    chatroomList, otherList = [], []
-    for m in contactList:
-        if m['Sex'] != 0:
-            otherList.append(m)
-        elif '@@' in m['UserName']:
+    contactList = dic.get('ContactList', [])		
+    chatroomList, otherList = [], []		
+    for m in contactList:		
+        if m['Sex'] != 0:		
+            otherList.append(m)		
+        elif '@@' in m['UserName']:		
             m['MemberList'] = [] # don't let dirty info pollute the list
-            chatroomList.append(m)
-        elif '@' in m['UserName']:
-            # mp will be dealt in update_local_friends as well
-            otherList.append(m)
+            chatroomList.append(m)		
+        elif '@' in m['UserName']:		
+            # mp will be dealt in update_local_friends as well		
+            otherList.append(m)		
     if chatroomList:
-        update_local_chatrooms(self, chatroomList)
+        update_local_chatrooms(self, chatroomList)		
     if otherList:
         update_local_friends(self, otherList)
     return dic
@@ -298,9 +315,8 @@ def sync_check(self):
         'uin'      : self.loginInfo['wxuin'],
         'deviceid' : self.loginInfo['deviceid'],
         'synckey'  : self.loginInfo['synckey'],
-        '_'        : self.loginInfo['logintime'], }
+        '_'        : int(time.time() * 1000),}
     headers = { 'User-Agent' : config.USER_AGENT }
-    self.loginInfo['logintime'] += 1
     try:
         r = self.s.get(url, params=params, headers=headers, timeout=config.TIMEOUT)
     except requests.exceptions.ConnectionError as e:
@@ -336,7 +352,7 @@ def get_msg(self):
     r = self.s.post(url, data=json.dumps(data), headers=headers, timeout=config.TIMEOUT)
     dic = json.loads(r.content.decode('utf-8', 'replace'))
     if dic['BaseResponse']['Ret'] != 0: return None, None
-    self.loginInfo['SyncKey'] = dic['SyncKey']
+    self.loginInfo['SyncKey'] = dic['SyncCheckKey']
     self.loginInfo['synckey'] = '|'.join(['%s_%s' % (item['Key'], item['Val'])
         for item in dic['SyncCheckKey']['List']])
     return dic['AddMsgList'], dic['ModContactList']
