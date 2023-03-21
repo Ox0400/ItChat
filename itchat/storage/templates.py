@@ -106,8 +106,8 @@ class AbstractUserDict(AttributeDict):
             'Ret': -1006,
             'ErrMsg': '%s can not add member' % \
                 self.__class__.__name__, }, })
-    def send_raw_msg(self, msgType, content):
-        return self.core.send_raw_msg(msgType, content, self.userName)
+    def send_raw_msg(self, msgType, content, msgId=None):
+        return self.core.send_raw_msg(msgType, content, self.userName, msgId=None)
     def send_msg(self, msg='Test Message'):
         return self.core.send_msg(msg, self.userName)
     def send_file(self, fileDir, mediaId=None):
@@ -269,7 +269,7 @@ class ChatroomMember(AbstractUserDict):
         return self.core.get_head_img(self.userName, self.chatroom.userName, picDir=imageDir)
     def delete_member(self, userName):
         return self.core.delete_member_from_chatroom(self.chatroom.userName, self.userName)
-    def send_raw_msg(self, msgType, content):
+    def send_raw_msg(self, msgType, content, MsgId=None):
         return ReturnValue({'BaseResponse': {
             'Ret': -1006,
             'ErrMsg': '%s can not send message directly' % \

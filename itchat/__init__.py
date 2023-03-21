@@ -20,7 +20,6 @@ originInstance = new_instance()
 
 # rpc
 start_rpc_server            = originInstance.start_rpc_server
-
 # components.login
 login                       = originInstance.login
 get_QRuuid                  = originInstance.get_QRuuid
